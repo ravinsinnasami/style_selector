@@ -1,7 +1,7 @@
 # Style Selector — ComfyUI Custom Node
 
 A node with a thumbnail gallery. Point it at a folder of paired
-`styleN.png` + `styleN.txt` files, pick a style either by clicking a
+`styleN.{png,jpg,jpeg,webp}` + `styleN.txt` files, pick a style either by clicking a
 thumbnail or by number, and it outputs:
 - **`prompt`** — the matching `.txt` content
 - **`style_name`** — just the filename of the selected style (e.g. `style3`), handy for filenames, labels, or logging which style was used
@@ -20,9 +20,11 @@ my_styles/
 ├── style1.png
 ├── style1.txt
 ├── portraits/
-│   ├── style2.png
+│   ├── style2.jpg
 │   ├── style2.txt
-│   ├── style3.txt          # text-only, no preview image yet
+│   ├── style3.webp
+│   ├── style3.txt
+│   ├── style4.txt          # text-only, no preview image yet
 ```
 
 - Subfolders are scanned recursively and shown as collapsible category
@@ -30,9 +32,13 @@ my_styles/
   folder itself is labeled `(root)`).
 - A `.txt` file is required for a style to be selectable/numbered — that's
   what gets output as the prompt.
-- A `.png` **without** a matching `.txt` is shown greyed out, unclickable,
-  and unnumbered (there's nothing for it to output).
-- A `.txt` **without** a matching `.png` is fully clickable/numbered and
+- Preview images can be `.png`, `.jpg`/`.jpeg`, or `.webp`. If a style has
+  more than one image file for the same name (e.g. both `style1.png` and
+  `style1.jpg`), **PNG wins, then JPG/JPEG, then WebP** — only one is ever
+  shown or served.
+- An image file **without** a matching `.txt` is shown greyed out,
+  unclickable, and unnumbered (there's nothing for it to output).
+- A `.txt` **without** any matching image is fully clickable/numbered and
   shown with a "no preview" placeholder icon — handy while you're still
   generating preview images for a batch of new styles.
 
@@ -90,8 +96,8 @@ does the reverse — the gallery highlight follows along either way.
     — it rejects `..`/absolute segments so a crafted name can't read files
     outside the chosen folder.
   - Two `aiohttp` routes on `PromptServer.instance.routes`:
-    - `GET /style_selector/list?folder=...` → JSON list of `{id, name, category, has_image, has_text}`
-    - `GET /style_selector/thumbnail?folder=...&name=...` → serves the raw PNG
+    - `GET /style_selector/list?folder=...` → JSON list of `{id, name, category, has_image, image_ext, has_text}`
+    - `GET /style_selector/thumbnail?folder=...&name=...` → serves the raw image (tries `.png`, `.jpg`/`.jpeg`, `.webp` in that order and returns whichever exists)
 - `web/style_selector.js`: a ComfyUI frontend extension hooking `onNodeCreated`
   for the `StyleSelector` node type. Adds a DOM widget (gallery) built from
   plain HTML — category sections, a filter input, and per-style tiles
@@ -107,6 +113,12 @@ does the reverse — the gallery highlight follows along either way.
 
 ## Notes on recent fixes
 
+- **Multi-format image support**: the scanner and thumbnail route now look
+  for `.png`, `.jpg`/`.jpeg`, and `.webp` per style name, not just `.png`.
+  If a style somehow has more than one (e.g. `style1.png` and
+  `style1.jpg` both present), PNG is preferred, then JPG/JPEG, then WebP —
+  `_scan_folder()` picks one `image_ext` per style and that's the only one
+  ever shown or served.
 - **Default control mode**: `style_number`'s control-after-generate now
   defaults to **fixed** instead of the implicit `randomize` default that
   ComfyUI otherwise applies to control-enabled INT widgets.

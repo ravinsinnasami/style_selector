@@ -2,12 +2,16 @@ import os
 from aiohttp import web
 from server import PromptServer
 
+# Priority order when a style has more than one image file for the same
+# stem (e.g. both style1.png and style1.jpg) - first match wins.
+IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp"]
+
 
 class StyleSelector:
     """
-    Reads a folder (recursively) of paired files (style1.png + style1.txt, etc.)
-    and outputs the text content of whichever style is selected via the thumbnail
-    gallery in the frontend widget.
+    Reads a folder (recursively) of paired files (style1.png/.jpg/.webp +
+    style1.txt, etc.) and outputs the text content of whichever style is
+    selected via the thumbnail gallery in the frontend widget.
     """
 
     @classmethod
@@ -113,21 +117,26 @@ def _scan_folder(root: str):
         for fname in filenames:
             base, ext = os.path.splitext(fname)
             ext = ext.lower()
-            if ext not in (".png", ".txt"):
+            if ext not in IMAGE_EXTS and ext != ".txt":
                 continue
-            entry = stems.setdefault(base, {"png": False, "txt": False})
-            if ext == ".png":
-                entry["png"] = True
-            else:
+            entry = stems.setdefault(base, {"image_exts": set(), "txt": False})
+            if ext == ".txt":
                 entry["txt"] = True
+            else:
+                entry["image_exts"].add(ext)
 
         for stem, flags in stems.items():
             style_id = stem if rel_dir == "" else f"{rel_dir}/{stem}"
+            # Pick the highest-priority image extension present, if any
+            # (png > jpg/jpeg > webp), so has_image/thumbnail lookups don't
+            # need to know or care which format was actually used.
+            image_ext = next((e for e in IMAGE_EXTS if e in flags["image_exts"]), None)
             styles.append({
                 "id": style_id,
                 "name": stem,
                 "category": rel_dir,
-                "has_image": flags["png"],
+                "has_image": image_ext is not None,
+                "image_ext": image_ext,
                 "has_text": flags["txt"],
             })
 
@@ -167,8 +176,9 @@ async def style_selector_thumbnail(request):
     if not folder or not os.path.isdir(folder):
         return web.Response(status=404, text="Folder not found")
 
-    full_path = _resolve_safe(folder, name, ".png")
-    if not full_path or not os.path.isfile(full_path):
-        return web.Response(status=404, text="Image not found")
+    for ext in IMAGE_EXTS:
+        full_path = _resolve_safe(folder, name, ext)
+        if full_path and os.path.isfile(full_path):
+            return web.FileResponse(full_path, headers={"Cache-Control": "no-cache"})
 
-    return web.FileResponse(full_path, headers={"Cache-Control": "no-cache"})
+    return web.Response(status=404, text="Image not found")
